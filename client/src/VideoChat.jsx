@@ -13,45 +13,46 @@ function VideoChat({ name, roomID }) {
   const peersRef = useRef([]);
 
   useEffect(() => {
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
       if (userVideo.current) {
         userVideo.current.srcObject = stream;
       }
 
-      setPeers((prev) => [
+      // Add self to peers list
+      setPeers(prev => [
         ...prev,
         {
           peerID: socket.id,
           peer: null,
           name,
           isSelf: true,
-          stream,
-        },
+          stream
+        }
       ]);
 
       socket.emit("join-room", { roomID, name });
 
-      socket.on("all-users", (users) => {
-        const newPeers = users.map((user) => {
+      socket.on("all-users", users => {
+        const newPeers = users.map(user => {
           const peer = createPeer(user.id, socket.id, stream, name);
           peersRef.current.push({ peerID: user.id, peer });
           return { peerID: user.id, peer, name: user.name };
         });
-        setPeers((prev) => [...prev, ...newPeers]);
+        setPeers(prev => [...prev, ...newPeers]);
       });
 
-      socket.on("user-joined", (payload) => {
+      socket.on("user-joined", payload => {
         const peer = addPeer(payload.signal, payload.id, stream);
         peersRef.current.push({ peerID: payload.id, peer });
-        setPeers((users) => [...users, { peerID: payload.id, peer, name: payload.name }]);
+        setPeers(users => [...users, { peerID: payload.id, peer, name: payload.name }]);
       });
 
-      socket.on("user-signal", (payload) => {
-        let item = peersRef.current.find((p) => p.peerID === payload.callerID);
+      socket.on("user-signal", payload => {
+        let item = peersRef.current.find(p => p.peerID === payload.callerID);
         if (!item) {
           const peer = addPeer(payload.signal, payload.callerID, stream);
           peersRef.current.push({ peerID: payload.callerID, peer });
-          setPeers((prev) => [...prev, { peerID: payload.callerID, peer, name: payload.name }]);
+          setPeers(prev => [...prev, { peerID: payload.callerID, peer, name: payload.name }]);
         } else {
           try {
             item.peer.signal(payload.signal);
@@ -61,8 +62,8 @@ function VideoChat({ name, roomID }) {
         }
       });
 
-      socket.on("receiving-returned-signal", (payload) => {
-        const item = peersRef.current.find((p) => p.peerID === payload.id);
+      socket.on("receiving-returned-signal", payload => {
+        const item = peersRef.current.find(p => p.peerID === payload.id);
         if (item?.peer && payload.signal) {
           try {
             item.peer.signal(payload.signal);
@@ -72,16 +73,16 @@ function VideoChat({ name, roomID }) {
         }
       });
 
-      socket.on("user-left", (id) => {
-        setPeers((prev) => prev.filter((p) => p.peerID !== id));
-        peersRef.current = peersRef.current.filter((p) => p.peerID !== id);
+      socket.on("user-left", id => {
+        setPeers(prev => prev.filter(p => p.peerID !== id));
+        peersRef.current = peersRef.current.filter(p => p.peerID !== id);
       });
     });
   }, []);
 
   function createPeer(userToSignal, callerID, stream, name) {
     const peer = new Peer({ initiator: true, trickle: false, stream });
-    peer.on("signal", (signal) => {
+    peer.on("signal", signal => {
       socket.emit("sending-signal", { userToSignal, callerID, signal, name });
     });
     return peer;
@@ -89,7 +90,7 @@ function VideoChat({ name, roomID }) {
 
   function addPeer(incomingSignal, callerID, stream) {
     const peer = new Peer({ initiator: false, trickle: false, stream });
-    peer.on("signal", (signal) => {
+    peer.on("signal", signal => {
       socket.emit("returning-signal", { signal, callerID });
     });
     peer.signal(incomingSignal);
@@ -97,34 +98,24 @@ function VideoChat({ name, roomID }) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-tr from-zinc-900 to-zinc-800 text-white p-6">
-      <h2 className="text-3xl text-center font-bold text-purple-400 mb-6">
-        💻 VibezMeet Room <span className="text-pink-400">#{roomID}</span>
-      </h2>
+    <div>
+      <h2>Meeting Room: {roomID}</h2>
 
-      <div className="flex flex-wrap justify-center gap-6">
-        {/* Self Video */}
-        <LocalVideo ref={userVideo} name={`${name} (You)`} />
+      {/* Self Video */}
+      <LocalVideo ref={userVideo} name={`${name} (You)`} />
 
-        {/* Remote Peers */}
-        {peers.map(({ peerID, peer, name, isSelf }) =>
-          !isSelf ? <Video key={peerID} peer={peer} name={name} /> : null
-        )}
-      </div>
+      {/* Remote Peers */}
+      {peers.map(({ peerID, peer, name, isSelf }) =>
+        !isSelf && <Video key={peerID} peer={peer} name={name} />
+      )}
     </div>
   );
 }
 
 const LocalVideo = React.forwardRef(({ name }, ref) => (
-  <div className="bg-zinc-700 rounded-2xl overflow-hidden shadow-xl p-3 text-center">
-    <video
-      ref={ref}
-      autoPlay
-      muted
-      playsInline
-      className="rounded-xl w-72 h-48 bg-black object-cover"
-    />
-    <p className="mt-2 font-medium">{name}</p>
+  <div>
+    <h4>{name}</h4>
+    <video ref={ref} autoPlay muted playsInline style={{ width: "300px" }} />
   </div>
 ));
 
@@ -132,22 +123,19 @@ function Video({ peer, name }) {
   const ref = useRef();
 
   useEffect(() => {
-    peer.on("stream", (stream) => {
+    peer.on("stream", stream => {
       if (ref.current) {
         ref.current.srcObject = stream;
+      } else {
+        console.warn("Video ref not ready");
       }
     });
   }, [peer]);
 
   return (
-    <div className="bg-zinc-700 rounded-2xl overflow-hidden shadow-xl p-3 text-center">
-      <video
-        ref={ref}
-        autoPlay
-        playsInline
-        className="rounded-xl w-72 h-48 bg-black object-cover"
-      />
-      <p className="mt-2 font-medium">{name}</p>
+    <div>
+      <h4>{name}</h4>
+      <video ref={ref} autoPlay playsInline style={{ width: "300px" }} />
     </div>
   );
 }
