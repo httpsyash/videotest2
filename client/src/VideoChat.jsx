@@ -137,14 +137,18 @@ function Video({ peer, name }) {
 
   useEffect(() => {
     peer.on("stream", stream => {
-      ref.current.srcObject = stream;
+      if (ref.current) {
+        ref.current.srcObject = stream;
+      } else {
+        console.warn("Video ref not ready when stream received");
+      }
     });
   }, [peer]);
 
   return (
     <div>
       <h4>{name}</h4>
-      
+      <video ref={ref} autoPlay playsInline style={{ width: "300px" }} />
     </div>
   );
 }
