@@ -11,63 +11,51 @@ function VideoChat({ name, roomID }) {
   const [peers, setPeers] = useState([]);
   const userVideo = useRef();
   const peersRef = useRef([]);
-  const streamRef = useRef(null);
+  const streamRef = useRef();
 
   useEffect(() => {
+    // Get camera/mic access
     navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
       streamRef.current = stream;
-      if (userVideo.current) {
-        userVideo.current.srcObject = stream;
-      }
+      if (userVideo.current) userVideo.current.srcObject = stream;
 
-      // Add self
-      setPeers(prev => [
-        ...prev,
-        {
-          peerID: socket.id,
-          peer: null,
-          name,
-          isSelf: true,
-          stream,
-        },
-      ]);
+      // Add self to peers list
+      setPeers([{ peerID: socket.id, peer: null, name, isSelf: true }]);
 
       socket.emit("join-room", { roomID, name });
 
-      // Existing users
       socket.on("all-users", users => {
-        const newPeers = users.map(user => {
-          const peer = createPeer(user.id, socket.id, stream, name);
+        const newPeers = [];
+        users.forEach(user => {
+          const peer = createPeer(user.id, socket.id, stream);
           peersRef.current.push({ peerID: user.id, peer });
-          return { peerID: user.id, peer, name: user.name };
+          newPeers.push({ peerID: user.id, peer, name: user.name });
         });
         setPeers(prev => [...prev, ...newPeers]);
       });
 
-      // New user joins — this peer does NOT initiate, only answers
       socket.on("user-joined", payload => {
         const peer = addPeer(payload.signal, payload.id, stream);
         peersRef.current.push({ peerID: payload.id, peer });
-        setPeers(users => [...users, { peerID: payload.id, peer, name: payload.name }]);
-      });
-
-      socket.on("user-signal", payload => {
-        const item = peersRef.current.find(p => p.peerID === payload.callerID);
-        if (item) {
-          item.peer.signal(payload.signal);
-        }
+        setPeers(prev => [...prev, { peerID: payload.id, peer, name: payload.name }]);
       });
 
       socket.on("receiving-returned-signal", payload => {
         const item = peersRef.current.find(p => p.peerID === payload.id);
-        if (item) {
-          item.peer.signal(payload.signal);
-        }
+        if (item) item.peer.signal(payload.signal);
+      });
+
+      socket.on("user-signal", payload => {
+        const item = peersRef.current.find(p => p.peerID === payload.callerID);
+        if (item) item.peer.signal(payload.signal);
       });
 
       socket.on("user-left", id => {
-        setPeers(prev => prev.filter(p => p.peerID !== id));
+        const peerObj = peersRef.current.find(p => p.peerID === id);
+        if (peerObj) peerObj.peer.destroy();
+
         peersRef.current = peersRef.current.filter(p => p.peerID !== id);
+        setPeers(prev => prev.filter(p => p.peerID !== id));
       });
     });
 
@@ -77,7 +65,7 @@ function VideoChat({ name, roomID }) {
     };
   }, []);
 
-  function createPeer(userToSignal, callerID, stream, name) {
+  function createPeer(userToSignal, callerID, stream) {
     const peer = new Peer({
       initiator: true,
       trickle: false,
@@ -110,12 +98,10 @@ function VideoChat({ name, roomID }) {
     <div>
       <h2>Meeting Room: {roomID}</h2>
 
-      {/* Self Video */}
       <LocalVideo ref={userVideo} name={`${name} (You)`} />
 
-      {/* Remote Peers */}
       {peers.map(({ peerID, peer, name, isSelf }) =>
-        !isSelf && <Video key={peerID} peer={peer} name={name} />
+        !isSelf && <RemoteVideo key={peerID} peer={peer} name={name} />
       )}
     </div>
   );
@@ -128,7 +114,7 @@ const LocalVideo = React.forwardRef(({ name }, ref) => (
   </div>
 ));
 
-function Video({ peer, name }) {
+function RemoteVideo({ peer, name }) {
   const ref = useRef();
 
   useEffect(() => {
@@ -137,6 +123,9 @@ function Video({ peer, name }) {
         ref.current.srcObject = stream;
       }
     });
+    return () => {
+      peer.removeAllListeners("stream");
+    };
   }, [peer]);
 
   return (
