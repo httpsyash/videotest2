@@ -16,7 +16,21 @@ function VideoChat({ name, roomID }) {
     navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
       userVideo.current.srcObject = stream;
 
+
+      setPeers(prev => [
+        ...prev,
+        {
+          peerID: socket.id,
+          peer: null,        // no peer connection to self
+          name,              // your name
+          isSelf: true,      // flag to identify yourself
+          stream             // your own media stream
+        }
+      ]);
+
       socket.emit("join-room", { roomID, name });
+
+
 
       socket.on("all-users", users => {
         const newPeers = users.map(user => {
@@ -97,9 +111,23 @@ socket.on("receiving-returned-signal", payload => {
     <div>
       <h2>Meeting Room: {roomID}</h2>
       <video ref={userVideo} autoPlay muted style={{ width: "300px" }} />
-      {peers.map(({ peerID, peer, name }) => (
-        <Video key={peerID} peer={peer} name={name} />
-      ))}
+      {peers.map(({ peerID, peer, name, isSelf, stream }) => (
+  isSelf ? (
+    <div key={peerID}>
+      <h4>{name} (You)</h4>
+      <video
+        ref={userVideo}
+        autoPlay
+        muted
+        playsInline
+        style={{ width: "300px" }}
+      />
+    </div>
+  ) : (
+    <Video key={peerID} peer={peer} name={name} />
+  )
+))}
+
     </div>
   );
 }
@@ -116,7 +144,7 @@ function Video({ peer, name }) {
   return (
     <div>
       <h4>{name}</h4>
-      <video ref={ref} autoPlay playsInline style={{ width: "300px" }} />
+      
     </div>
   );
 }
