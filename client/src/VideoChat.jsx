@@ -18,7 +18,6 @@ function VideoChat({ name, roomID }) {
         userVideo.current.srcObject = stream;
       }
 
-      // Add self to peers list
       setPeers(prev => [
         ...prev,
         {
@@ -26,8 +25,8 @@ function VideoChat({ name, roomID }) {
           peer: null,
           name,
           isSelf: true,
-          stream
-        }
+          stream,
+        },
       ]);
 
       socket.emit("join-room", { roomID, name });
@@ -45,17 +44,22 @@ function VideoChat({ name, roomID }) {
         const peer = addPeer(payload.signal, payload.id, stream);
         peersRef.current.push({ peerID: payload.id, peer });
         setPeers(users => [...users, { peerID: payload.id, peer, name: payload.name }]);
+
+        // 🔄 Initiate connection back to new user to ensure all peers are connected
+        const reversePeer = createPeer(payload.id, socket.id, stream, name);
+        peersRef.current.push({ peerID: payload.id + "-reverse", peer: reversePeer }); // use suffix to avoid ID clash
+        setPeers(users => [...users, { peerID: payload.id + "-reverse", peer: reversePeer, name: payload.name }]);
       });
 
       socket.on("user-signal", payload => {
-        let item = peersRef.current.find(p => p.peerID === payload.callerID);
-        if (!item) {
+        const existing = peersRef.current.find(p => p.peerID === payload.callerID);
+        if (!existing) {
           const peer = addPeer(payload.signal, payload.callerID, stream);
           peersRef.current.push({ peerID: payload.callerID, peer });
           setPeers(prev => [...prev, { peerID: payload.callerID, peer, name: payload.name }]);
         } else {
           try {
-            item.peer.signal(payload.signal);
+            existing.peer.signal(payload.signal);
           } catch (err) {
             console.error("Error signaling peer:", err);
           }
@@ -74,8 +78,8 @@ function VideoChat({ name, roomID }) {
       });
 
       socket.on("user-left", id => {
-        setPeers(prev => prev.filter(p => p.peerID !== id));
-        peersRef.current = peersRef.current.filter(p => p.peerID !== id);
+        setPeers(prev => prev.filter(p => !p.peerID.startsWith(id)));
+        peersRef.current = peersRef.current.filter(p => !p.peerID.startsWith(id));
       });
     });
   }, []);
@@ -93,7 +97,11 @@ function VideoChat({ name, roomID }) {
     peer.on("signal", signal => {
       socket.emit("returning-signal", { signal, callerID });
     });
-    peer.signal(incomingSignal);
+
+    if (incomingSignal) {
+      peer.signal(incomingSignal);
+    }
+
     return peer;
   }
 
