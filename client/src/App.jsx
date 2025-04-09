@@ -14,7 +14,7 @@ function App() {
     <div style={{ textAlign: "center" }}>
       {!joined ? (
         <div>
-          <h2>Join a Meeting</h2>
+          <h2>Hi! Join a Meeting</h2>
           <input placeholder="Your Name" onChange={e => setName(e.target.value)} />
           <input placeholder="Meeting ID" onChange={e => setRoomID(e.target.value)} />
           <button onClick={handleJoin}>Join</button>
