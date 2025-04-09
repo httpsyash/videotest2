@@ -13,6 +13,10 @@ const io = new Server(server, {
 
 let users = {};
 
+app.get('/', (req, res) => {
+  res.send('Hello World!')
+})
+
 io.on("connection", (socket) => {
   socket.on("join-room", ({ roomID, name }) => {
     if (!users[roomID]) users[roomID] = [];
