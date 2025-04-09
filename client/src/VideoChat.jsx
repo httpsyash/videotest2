@@ -35,16 +35,22 @@ function VideoChat({ name, roomID }) {
 
       // Receiving signal from another user (when they first join)
 socket.on("user-signal", payload => {
-  const item = peersRef.current.find(p => p.peerID === payload.callerID);
-  if (item?.peer && payload.signal) {
-    try {
-      item.peer.signal(payload.signal);
-    } catch (err) {
-      console.error("Error signaling peer:", err);
-    }
-  } else {
-    console.warn("Peer not found or signal missing", payload);
+  let item = peersRef.current.find(p => p.peerID === payload.callerID);
+
+if (!item) {
+  // Create the peer dynamically if not found
+  const peer = addPeer(payload.signal, payload.callerID, userVideo.current.srcObject);
+  peersRef.current.push({ peerID: payload.callerID, peer });
+  setPeers(prev => [...prev, { peerID: payload.callerID, peer, name: payload.name }]);
+  console.log("Created peer dynamically for:", payload.callerID);
+} else {
+  try {
+    item.peer.signal(payload.signal);
+  } catch (err) {
+    console.error("Error signaling peer:", err);
   }
+}
+
 });
 
 // Receiving the returned signal (when we initiated connection)
