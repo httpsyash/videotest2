@@ -11,13 +11,16 @@ function VideoChat({ name, roomID }) {
   const [peers, setPeers] = useState([]);
   const userVideo = useRef();
   const peersRef = useRef([]);
+  const streamRef = useRef(null);
 
   useEffect(() => {
     navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
+      streamRef.current = stream;
       if (userVideo.current) {
         userVideo.current.srcObject = stream;
       }
 
+      // Add self
       setPeers(prev => [
         ...prev,
         {
@@ -31,6 +34,7 @@ function VideoChat({ name, roomID }) {
 
       socket.emit("join-room", { roomID, name });
 
+      // Existing users
       socket.on("all-users", users => {
         const newPeers = users.map(user => {
           const peer = createPeer(user.id, socket.id, stream, name);
@@ -40,68 +44,65 @@ function VideoChat({ name, roomID }) {
         setPeers(prev => [...prev, ...newPeers]);
       });
 
+      // New user joins — this peer does NOT initiate, only answers
       socket.on("user-joined", payload => {
         const peer = addPeer(payload.signal, payload.id, stream);
         peersRef.current.push({ peerID: payload.id, peer });
         setPeers(users => [...users, { peerID: payload.id, peer, name: payload.name }]);
-
-        // 🔄 Initiate connection back to new user to ensure all peers are connected
-        const reversePeer = createPeer(payload.id, socket.id, stream, name);
-        peersRef.current.push({ peerID: payload.id + "-reverse", peer: reversePeer }); // use suffix to avoid ID clash
-        setPeers(users => [...users, { peerID: payload.id + "-reverse", peer: reversePeer, name: payload.name }]);
       });
 
       socket.on("user-signal", payload => {
-        const existing = peersRef.current.find(p => p.peerID === payload.callerID);
-        if (!existing) {
-          const peer = addPeer(payload.signal, payload.callerID, stream);
-          peersRef.current.push({ peerID: payload.callerID, peer });
-          setPeers(prev => [...prev, { peerID: payload.callerID, peer, name: payload.name }]);
-        } else {
-          try {
-            existing.peer.signal(payload.signal);
-          } catch (err) {
-            console.error("Error signaling peer:", err);
-          }
+        const item = peersRef.current.find(p => p.peerID === payload.callerID);
+        if (item) {
+          item.peer.signal(payload.signal);
         }
       });
 
       socket.on("receiving-returned-signal", payload => {
         const item = peersRef.current.find(p => p.peerID === payload.id);
-        if (item?.peer && payload.signal) {
-          try {
-            item.peer.signal(payload.signal);
-          } catch (err) {
-            console.error("Error receiving returned signal:", err);
-          }
+        if (item) {
+          item.peer.signal(payload.signal);
         }
       });
 
       socket.on("user-left", id => {
-        setPeers(prev => prev.filter(p => !p.peerID.startsWith(id)));
-        peersRef.current = peersRef.current.filter(p => !p.peerID.startsWith(id));
+        setPeers(prev => prev.filter(p => p.peerID !== id));
+        peersRef.current = peersRef.current.filter(p => p.peerID !== id);
       });
     });
+
+    return () => {
+      socket.disconnect();
+      streamRef.current?.getTracks().forEach(track => track.stop());
+    };
   }, []);
 
   function createPeer(userToSignal, callerID, stream, name) {
-    const peer = new Peer({ initiator: true, trickle: false, stream });
+    const peer = new Peer({
+      initiator: true,
+      trickle: false,
+      stream,
+    });
+
     peer.on("signal", signal => {
       socket.emit("sending-signal", { userToSignal, callerID, signal, name });
     });
+
     return peer;
   }
 
   function addPeer(incomingSignal, callerID, stream) {
-    const peer = new Peer({ initiator: false, trickle: false, stream });
+    const peer = new Peer({
+      initiator: false,
+      trickle: false,
+      stream,
+    });
+
     peer.on("signal", signal => {
       socket.emit("returning-signal", { signal, callerID });
     });
 
-    if (incomingSignal) {
-      peer.signal(incomingSignal);
-    }
-
+    peer.signal(incomingSignal);
     return peer;
   }
 
@@ -134,8 +135,6 @@ function Video({ peer, name }) {
     peer.on("stream", stream => {
       if (ref.current) {
         ref.current.srcObject = stream;
-      } else {
-        console.warn("Video ref not ready");
       }
     });
   }, [peer]);
