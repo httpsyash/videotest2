@@ -14,23 +14,23 @@ function VideoChat({ name, roomID }) {
 
   useEffect(() => {
     navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
-      if (userVideo.current) {
-        userVideo.current.srcObject = stream;
-      }
+      userVideo.current.srcObject = stream;
 
-      // Add self to peers list
+
       setPeers(prev => [
         ...prev,
         {
           peerID: socket.id,
-          peer: null,
-          name,
-          isSelf: true,
-          stream
+          peer: null,        // no peer connection to self
+          name,              // your name
+          isSelf: true,      // flag to identify yourself
+          stream             // your own media stream
         }
       ]);
 
       socket.emit("join-room", { roomID, name });
+
+
 
       socket.on("all-users", users => {
         const newPeers = users.map(user => {
@@ -38,7 +38,7 @@ function VideoChat({ name, roomID }) {
           peersRef.current.push({ peerID: user.id, peer });
           return { peerID: user.id, peer, name: user.name };
         });
-        setPeers(prev => [...prev, ...newPeers]);
+        setPeers(newPeers);
       });
 
       socket.on("user-joined", payload => {
@@ -47,31 +47,40 @@ function VideoChat({ name, roomID }) {
         setPeers(users => [...users, { peerID: payload.id, peer, name: payload.name }]);
       });
 
-      socket.on("user-signal", payload => {
-        let item = peersRef.current.find(p => p.peerID === payload.callerID);
-        if (!item) {
-          const peer = addPeer(payload.signal, payload.callerID, stream);
-          peersRef.current.push({ peerID: payload.callerID, peer });
-          setPeers(prev => [...prev, { peerID: payload.callerID, peer, name: payload.name }]);
-        } else {
-          try {
-            item.peer.signal(payload.signal);
-          } catch (err) {
-            console.error("Error signaling peer:", err);
-          }
-        }
-      });
+      // Receiving signal from another user (when they first join)
+socket.on("user-signal", payload => {
+  let item = peersRef.current.find(p => p.peerID === payload.callerID);
 
-      socket.on("receiving-returned-signal", payload => {
-        const item = peersRef.current.find(p => p.peerID === payload.id);
-        if (item?.peer && payload.signal) {
-          try {
-            item.peer.signal(payload.signal);
-          } catch (err) {
-            console.error("Error receiving returned signal:", err);
-          }
-        }
-      });
+if (!item) {
+  // Create the peer dynamically if not found
+  const peer = addPeer(payload.signal, payload.callerID, userVideo.current.srcObject);
+  peersRef.current.push({ peerID: payload.callerID, peer });
+  setPeers(prev => [...prev, { peerID: payload.callerID, peer, name: payload.name }]);
+  console.log("Created peer dynamically for:", payload.callerID);
+} else {
+  try {
+    item.peer.signal(payload.signal);
+  } catch (err) {
+    console.error("Error signaling peer:", err);
+  }
+}
+
+});
+
+// Receiving the returned signal (when we initiated connection)
+socket.on("receiving-returned-signal", payload => {
+  const item = peersRef.current.find(p => p.peerID === payload.id);
+  if (item?.peer && payload.signal) {
+    try {
+      item.peer.signal(payload.signal);
+    } catch (err) {
+      console.error("Error receiving returned signal:", err);
+    }
+  } else {
+    console.warn("Missing peer or signal", payload);
+  }
+});
+
 
       socket.on("user-left", id => {
         setPeers(prev => prev.filter(p => p.peerID !== id));
@@ -93,31 +102,35 @@ function VideoChat({ name, roomID }) {
     peer.on("signal", signal => {
       socket.emit("returning-signal", { signal, callerID });
     });
-    peer.signal(incomingSignal);
+    peer.signal(incomingSignal); // ✅ This is correct and required!
     return peer;
   }
+  
 
   return (
     <div>
       <h2>Meeting Room: {roomID}</h2>
+      <video ref={userVideo} autoPlay muted style={{ width: "300px" }} />
+      {peers.map(({ peerID, peer, name, isSelf, stream }) => (
+  isSelf ? (
+    <div key={peerID}>
+      <h4>{name} (You)</h4>
+      <video
+        ref={userVideo}
+        autoPlay
+        muted
+        playsInline
+        style={{ width: "300px" }}
+      />
+    </div>
+  ) : (
+    <Video key={peerID} peer={peer} name={name} />
+  )
+))}
 
-      {/* Self Video */}
-      <LocalVideo ref={userVideo} name={`${name} (You)`} />
-
-      {/* Remote Peers */}
-      {peers.map(({ peerID, peer, name, isSelf }) =>
-        !isSelf && <Video key={peerID} peer={peer} name={name} />
-      )}
     </div>
   );
 }
-
-const LocalVideo = React.forwardRef(({ name }, ref) => (
-  <div>
-    <h4>{name}</h4>
-    <video ref={ref} autoPlay muted playsInline style={{ width: "300px" }} />
-  </div>
-));
 
 function Video({ peer, name }) {
   const ref = useRef();
@@ -127,7 +140,7 @@ function Video({ peer, name }) {
       if (ref.current) {
         ref.current.srcObject = stream;
       } else {
-        console.warn("Video ref not ready");
+        console.warn("Video ref not ready when stream received");
       }
     });
   }, [peer]);
