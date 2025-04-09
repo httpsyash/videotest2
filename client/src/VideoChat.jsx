@@ -2,7 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import Peer from "simple-peer";
 
-const socket = io(import.meta.env.VITE_API_URL);
+const socket = io(import.meta.env.VITE_API_URL, {
+  transports: ["websocket"],
+  reconnectionAttempts: 5,
+});
 
 function VideoChat({ name, roomID }) {
   const [peers, setPeers] = useState([]);
@@ -30,15 +33,34 @@ function VideoChat({ name, roomID }) {
         setPeers(users => [...users, { peerID: payload.id, peer, name: payload.name }]);
       });
 
-      socket.on("user-signal", payload => {
-        const item = peersRef.current.find(p => p.peerID === payload.callerID);
-        item?.peer.signal(payload.signal);
-      });
+      // Receiving signal from another user (when they first join)
+socket.on("user-signal", payload => {
+  const item = peersRef.current.find(p => p.peerID === payload.callerID);
+  if (item?.peer && payload.signal) {
+    try {
+      item.peer.signal(payload.signal);
+    } catch (err) {
+      console.error("Error signaling peer:", err);
+    }
+  } else {
+    console.warn("Peer not found or signal missing", payload);
+  }
+});
 
-      socket.on("receiving-returned-signal", payload => {
-        const item = peersRef.current.find(p => p.peerID === payload.id);
-        item?.peer.signal(payload.signal);
-      });
+// Receiving the returned signal (when we initiated connection)
+socket.on("receiving-returned-signal", payload => {
+  const item = peersRef.current.find(p => p.peerID === payload.id);
+  if (item?.peer && payload.signal) {
+    try {
+      item.peer.signal(payload.signal);
+    } catch (err) {
+      console.error("Error receiving returned signal:", err);
+    }
+  } else {
+    console.warn("Missing peer or signal", payload);
+  }
+});
+
 
       socket.on("user-left", id => {
         setPeers(prev => prev.filter(p => p.peerID !== id));
@@ -60,9 +82,10 @@ function VideoChat({ name, roomID }) {
     peer.on("signal", signal => {
       socket.emit("returning-signal", { signal, callerID });
     });
-    peer.signal(incomingSignal);
+    peer.signal(incomingSignal); // ✅ This is correct and required!
     return peer;
   }
+  
 
   return (
     <div>

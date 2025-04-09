@@ -15,10 +15,12 @@ let users = {};
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
+  console.log("it is running")
 })
 
 io.on("connection", (socket) => {
   socket.on("join-room", ({ roomID, name }) => {
+    console.log("i ma in participants signal")
     if (!users[roomID]) users[roomID] = [];
     users[roomID].push({ id: socket.id, name });
 
@@ -33,6 +35,7 @@ io.on("connection", (socket) => {
     });
 
     socket.on("sending-signal", (payload) => {
+      console.log("i ma in sending signal")
       io.to(payload.userToSignal).emit("user-signal", {
         signal: payload.signal,
         callerID: socket.id,
@@ -41,6 +44,7 @@ io.on("connection", (socket) => {
     });
 
     socket.on("returning-signal", (payload) => {
+      console.log("i ma in retruning signal")
       io.to(payload.callerID).emit("receiving-returned-signal", {
         signal: payload.signal,
         id: socket.id,
